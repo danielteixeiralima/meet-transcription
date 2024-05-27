@@ -1,0 +1,37 @@
+{
+  "manifest_version": 2,
+  "name": "Google Meet Transcription",
+  "version": "1.0",
+  "description": "Transcribe Google Meet meetings",
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "storage",
+    "tabs",
+    "http://127.0.0.1:5000/",
+    "audioCapture"
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": false
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["content.js"]
+    }
+  ],
+  "browser_action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "images/icon16.png",
+      "48": "images/icon48.png",
+      "128": "images/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "images/icon16.png",
+    "48": "images/icon48.png",
+    "128": "images/icon128.png"
+  }
+}

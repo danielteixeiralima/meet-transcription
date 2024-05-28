@@ -15,7 +15,7 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 });
 
 function startRecording(tabId, tabUrl) {
-    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+    navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 44100 } }).then(stream => {
         console.log("Audio stream captured.");
         mediaRecorder = new MediaRecorder(stream);
         audioChunks = []; // Reset the chunks array at the start
@@ -54,26 +54,21 @@ function saveCurrentTranscription() {
 }
 
 function sendAudioData(blob, saveOnly = false) {
-    const reader = new FileReader();
-    reader.onloadend = function () {
-        const base64data = reader.result.split(',')[1];
-        const endpoint = saveOnly ? 'save_transcription' : 'transcribe';
-        fetch(`http://127.0.0.1:5000/${endpoint}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/octet-stream'
-            },
-            body: base64data
-        }).then(response => response.json()).then(data => {
-            console.log("Transcription result:", data);
-            if (saveOnly) {
-                console.log("Transcription saved successfully.");
-                // Optionally restart recording if needed
-                startRecording(); // Call this only if continuous recording is required
-            }
-        }).catch(error => {
-            console.error("Error sending audio data:", error);
-        });
-    };
-    reader.readAsDataURL(blob);
+    const endpoint = saveOnly ? 'save_transcription' : 'transcribe';
+    fetch(`http://127.0.0.1:5000/${endpoint}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'audio/webm'
+        },
+        body: blob
+    }).then(response => response.json()).then(data => {
+        console.log("Transcription result:", data);
+        if (saveOnly) {
+            console.log("Transcription saved successfully.");
+            // Optionally restart recording if needed
+            startRecording(); // Call this only if continuous recording is required
+        }
+    }).catch(error => {
+        console.error("Error sending audio data:", error);
+    });
 }

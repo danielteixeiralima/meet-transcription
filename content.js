@@ -39,7 +39,7 @@ window.addEventListener('load', function() {
                 if (data.error) {
                     console.error('Server error:', data.error);
                 } else {
-                    console.log("Data received:", data); // Verificar dados recebidos
+                    console.log("Data received:", data);
                     data.forEach(entry => displayTranscription(`${entry.speaker}: ${entry.transcription}`));
                 }
             })
@@ -69,4 +69,25 @@ window.addEventListener('load', function() {
     }
 
     setInterval(captureAudio, 15000); // Try capturing every 15 seconds
+
+    // Detect when the user is about to leave the meeting or close the tab/window
+    window.addEventListener('beforeunload', function(event) {
+        chrome.runtime.sendMessage({action: 'stopTranscription'});
+    });
+
+    // Add a button to save transcription
+    const saveTranscriptionButton = document.createElement('button');
+    saveTranscriptionButton.textContent = 'Save Transcription';
+    saveTranscriptionButton.style.position = 'fixed';
+    saveTranscriptionButton.style.top = '20px';
+    saveTranscriptionButton.style.right = '20px';
+    saveTranscriptionButton.style.zIndex = '1001';
+    document.body.appendChild(saveTranscriptionButton);
+
+    saveTranscriptionButton.addEventListener('click', function() {
+        chrome.runtime.sendMessage({action: 'saveTranscription'});
+    });
+
+    // Start transcription when the page loads
+    chrome.runtime.sendMessage({action: 'startTranscription'});
 });

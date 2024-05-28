@@ -39,8 +39,6 @@ def transcribe_audio():
         temp_wav_path = "temp_audio.wav"
         with open(temp_webm_path, "wb") as f:
             f.write(audio_bytes)
-        logging.info("WebM file written.")
-
         subprocess.run(['ffmpeg', '-y', '-i', temp_webm_path, '-ar', '16000', '-ac', '1', temp_wav_path], check=True)
         logging.info("Conversion to WAV completed.")
 
@@ -52,27 +50,64 @@ def transcribe_audio():
         logging.info("WAV file loaded.")
 
         if diarization_pipeline:
-            diarization = diarization_pipeline(temp_wav_path)
+            diarization = diarization_pipeline({'uri': 'temp_audio', 'audio': temp_wav_path})
             results = []
-            for segment in diarization.get_timeline():
-                start_time = int(segment.start * sample_rate)
-                end_time = int(segment.end * sample_rate)
-                if end_time > start_time:  # Checking for valid segment duration
-                    segment_audio = speech[start_time:end_time]
-                    logging.info(f"Processing segment from {start_time} to {end_time}")
-
+            for turn, _, speaker in diarization.itertracks(yield_label=True):
+                start, end = turn
+                if end > start:  # Ensure positive duration
+                    segment_audio = speech[int(start * sample_rate):int(end * sample_rate)]
                     input_values = processor(segment_audio, return_tensors="pt", sampling_rate=sample_rate).input_values
                     logits = model(input_values).logits
                     predicted_ids = torch.argmax(logits, dim=-1)
                     transcription = processor.batch_decode(predicted_ids)[0]
-
-                    results.append({'start_time': start_time, 'end_time': end_time, 'transcription': transcription})
+                    results.append({'speaker': speaker, 'start': start, 'end': end, 'transcription': transcription})
                 else:
-                    logging.warning(f"Skipped segment from {start_time} to {end_time} due to non-positive duration.")
+                    logging.warning(f"Skipped segment from {start} to {end} due to non-positive duration.")
 
             return jsonify(results), 200
         else:
             logging.error("Diarization pipeline not available")
+            return jsonify({'error': 'Diarization pipeline not available'}), 500
+    except Exception as e:
+        logging.error(f"Error processing audio data: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/save_transcription', methods=['POST'])
+def save_transcription():
+    audio_data = request.data
+    if not audio_data:
+        logging.error("No audio data received")
+        return jsonify({'error': 'No audio data received'}), 400
+
+    try:
+        audio_bytes = base64.b64decode(audio_data)
+        temp_webm_path = "temp_audio.webm"
+        temp_wav_path = "temp_audio.wav"
+        with open(temp_webm_path, "wb") as f:
+            f.write(audio_bytes)
+        subprocess.run(['ffmpeg', '-y', '-i', temp_webm_path, '-ar', '16000', '-ac', '1', temp_wav_path], check=True)
+        speech, sample_rate = sf.read(temp_wav_path)
+        transcription = ""
+
+        if diarization_pipeline:
+            diarization = diarization_pipeline({'uri': 'temp_audio', 'audio': temp_wav_path})
+            for turn, _, speaker in diarization.itertracks(yield_label=True):
+                start, end = turn
+                if end > start:
+                    segment_audio = speech[int(start * sample_rate):int(end * sample_rate)]
+                    input_values = processor(segment_audio, return_tensors="pt", sampling_rate=sample_rate).input_values
+                    logits = model(input_values).logits
+                    predicted_ids = torch.argmax(logits, dim=-1)
+                    segment_transcription = processor.batch_decode(predicted_ids)[0]
+                    transcription += f"Speaker {speaker}: {segment_transcription}\n"
+
+            directory = './transcriptions'
+            if not os.path.exists(directory):
+                os.makedirs(directory)
+            with open(os.path.join(directory, 'complete_transcription.txt'), 'w') as file:
+                file.write(transcription)
+            return jsonify({'status': 'success', 'message': 'Transcription saved successfully'}), 200
+        else:
             return jsonify({'error': 'Diarization pipeline not available'}), 500
     except Exception as e:
         logging.error(f"Error processing audio data: {e}", exc_info=True)

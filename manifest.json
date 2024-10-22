@@ -1,5 +1,5 @@
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
   "name": "Google Meet Transcription",
   "version": "1.0",
   "description": "Transcribe Google Meet meetings",
@@ -8,12 +8,10 @@
     "contextMenus",
     "storage",
     "tabs",
-    "http://127.0.0.1:5000/",
-    "audioCapture"
+    "microphone"
   ],
   "background": {
-    "scripts": ["background.js"],
-    "persistent": false
+    "service_worker": "background.js"
   },
   "content_scripts": [
     {
@@ -21,7 +19,7 @@
       "js": ["content.js"]
     }
   ],
-  "browser_action": {
+  "action": {
     "default_popup": "popup.html",
     "default_icon": {
       "16": "images/icon16.png",

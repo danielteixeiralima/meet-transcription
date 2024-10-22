@@ -1,4 +1,8 @@
 window.addEventListener('load', function() {
+    let mediaRecorder;
+    let audioChunks = [];
+
+    // Função para exibir a transcrição na página
     function displayTranscription(transcription) {
         let transcriptionDiv = document.getElementById('transcription');
         if (!transcriptionDiv) {
@@ -15,79 +19,95 @@ window.addEventListener('load', function() {
             transcriptionDiv.style.overflow = 'auto';
             transcriptionDiv.style.height = '150px';
             document.body.appendChild(transcriptionDiv);
+            console.log("Div de transcrição criada.");
+        } else {
+            console.log("Div de transcrição já existe.");
         }
-        transcriptionDiv.textContent += transcription + ' ';
+
+        console.log("Exibindo transcrição: ", transcription);
+        transcriptionDiv.innerHTML += transcription + '<br>';
     }
 
+    // Função para enviar o áudio para o servidor de transcrição
     function transcribeAudio(blob) {
         if (!blob.size) {
-            console.error("No audio data captured.");
+            console.error("Nenhum áudio capturado.");
             return;
         }
-        const reader = new FileReader();
-        reader.onloadend = function() {
-            const base64data = reader.result.split(',')[1];
-            fetch('http://127.0.0.1:5000/transcribe', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/octet-stream'
-                },
-                body: base64data
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    console.error('Server error:', data.error);
+        console.log("Enviando áudio para transcrição...");
+        fetch('http://127.0.0.1:5000/transcribe', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'audio/webm'
+            },
+            body: blob
+        })
+        .then(response => {
+            console.log("Resposta recebida do servidor: ", response);
+            return response.json();
+        })
+        .then(data => {
+            if (data.error) {
+                console.error('Erro no servidor:', data.error);
+            } else {
+                console.log("Dados recebidos:", data);
+                if (data.length === 0) {
+                    console.warn("Nenhuma transcrição retornada.");
                 } else {
-                    console.log("Data received:", data);
-                    data.forEach(entry => displayTranscription(`${entry.speaker}: ${entry.transcription}`));
+                    console.log("Transcrições recebidas:", data);
                 }
-            })
-            .catch(error => console.error('Error:', error));
-        };
-        reader.readAsDataURL(blob);
+                data.forEach(entry => displayTranscription(`${entry.speaker}: ${entry.transcription}`));
+            }
+        })
+        .catch(error => console.error('Erro ao buscar transcrição:', error));
     }
 
-    function setupMediaRecorder(stream) {
-        const mediaRecorder = new MediaRecorder(stream);
-        let chunks = [];
-        mediaRecorder.ondataavailable = e => chunks.push(e.data);
-        mediaRecorder.onstop = e => {
-            const completeBlob = new Blob(chunks, { type: 'audio/webm' });
-            transcribeAudio(completeBlob);
-            chunks = [];
-        };
-
-        mediaRecorder.start();
-        setTimeout(() => mediaRecorder.stop(), 10000); // Collect 10 seconds of audio
-    }
-
+    // Capturando áudio da página
     function captureAudio() {
+        console.log("Iniciando a tentativa de acesso ao microfone...");
         navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(setupMediaRecorder)
-        .catch(error => console.error('Error accessing media devices.', error));
+        .then(stream => {
+            console.log("Acesso ao microfone garantido com sucesso.", stream);
+            mediaRecorder = new MediaRecorder(stream);
+            audioChunks = [];
+
+            mediaRecorder.ondataavailable = e => {
+                audioChunks.push(e.data);
+                console.log("Gravando áudio...");
+            };
+
+            mediaRecorder.onstop = e => {
+                console.log("Gravação de áudio parada.");
+                const completeBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                transcribeAudio(completeBlob);
+                audioChunks = [];
+            };
+
+            mediaRecorder.start();
+            console.log("MediaRecorder iniciou a captura de áudio.");
+        })
+        .catch(error => {
+            console.error("Erro ao acessar dispositivos de mídia.", error);
+        });
     }
 
-    setInterval(captureAudio, 15000); // Try capturing every 15 seconds
+    // Iniciar ou parar a captura de áudio conforme a mensagem recebida
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+        console.log("Mensagem recebida no content.js:", message);
 
-    // Detect when the user is about to leave the meeting or close the tab/window
-    window.addEventListener('beforeunload', function(event) {
-        chrome.runtime.sendMessage({action: 'stopTranscription'});
+        if (message.action === 'startTranscription') {
+            console.log("Transcrição iniciada...");
+            captureAudio();
+            sendResponse({ status: 'Audio capture started' });
+        } else if (message.action === 'stopTranscription') {
+            console.log("Transcrição parada...");
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                console.log("MediaRecorder parando a gravação.");
+            }
+            sendResponse({ status: 'Audio capture stopped' });
+        }
     });
 
-    // Add a button to save transcription
-    const saveTranscriptionButton = document.createElement('button');
-    saveTranscriptionButton.textContent = 'Save Transcription';
-    saveTranscriptionButton.style.position = 'fixed';
-    saveTranscriptionButton.style.top = '20px';
-    saveTranscriptionButton.style.right = '20px';
-    saveTranscriptionButton.style.zIndex = '1001';
-    document.body.appendChild(saveTranscriptionButton);
-
-    saveTranscriptionButton.addEventListener('click', function() {
-        chrome.runtime.sendMessage({action: 'saveTranscription'});
-    });
-
-    // Start transcription when the page loads
-    chrome.runtime.sendMessage({action: 'startTranscription'});
+    console.log("Content script carregado e pronto.");
 });

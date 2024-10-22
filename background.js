@@ -1,74 +1,44 @@
-let mediaRecorder;
-let audioChunks = [];
+console.log("Background script loaded");
 
 chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
+    console.log("Mensagem recebida no background.js:", request);
+
     if (request.action === "startTranscription") {
-        console.log("Starting transcription...");
-        startRecording(request.tabId, request.tabUrl);
+        console.log("Forwarding start transcription request to content script...");
+        chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+            console.log("Resultado da consulta de tabs:", tabs);
+            if (tabs.length === 0) {
+                console.error("Nenhuma aba ativa encontrada.");
+                sendResponse({ status: "No active tab found" });
+                return;
+            }
+            if (tabs[0] && tabs[0].id) {
+                console.log("Enviando mensagem ao content script para iniciar a transcrição. Tab ID:", tabs[0].id);
+                chrome.tabs.sendMessage(tabs[0].id, { action: 'startTranscription' }, response => {
+                    console.log("Resposta recebida do content script:", response);
+                    sendResponse(response);
+                });
+            } else {
+                console.error("Tab ativa encontrada, mas sem um ID válido:", tabs[0]);
+                sendResponse({ status: "Active tab found but no valid tab ID" });
+            }
+        });
+        return true; // Indica que a resposta será enviada de forma assíncrona.
     } else if (request.action === "stopTranscription") {
-        console.log("Stopping transcription...");
-        stopRecording();
-    } else if (request.action === "saveTranscription") {
-        console.log("Saving transcription...");
-        saveCurrentTranscription();
+        console.log("Forwarding stop transcription request to content script...");
+        chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+            console.log("Resultado da consulta de tabs para parar transcrição:", tabs);
+            if (tabs[0] && tabs[0].id) {
+                console.log("Enviando mensagem ao content script para parar a transcrição. Tab ID:", tabs[0].id);
+                chrome.tabs.sendMessage(tabs[0].id, { action: 'stopTranscription' }, response => {
+                    console.log("Resposta recebida do content script:", response);
+                    sendResponse(response);
+                });
+            } else {
+                console.error("Nenhuma aba ativa encontrada ou tab ID inválido.");
+                sendResponse({ status: "No active tab found or invalid tab ID" });
+            }
+        });
+        return true; // Indica que a resposta será enviada de forma assíncrona.
     }
 });
-
-function startRecording(tabId, tabUrl) {
-    navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 44100 } }).then(stream => {
-        console.log("Audio stream captured.");
-        mediaRecorder = new MediaRecorder(stream);
-        audioChunks = []; // Reset the chunks array at the start
-
-        mediaRecorder.ondataavailable = function (event) {
-            if (event.data.size > 0) {
-                audioChunks.push(event.data);
-            }
-        };
-
-        mediaRecorder.onstop = function () {
-            console.log("Recording stopped, sending data...");
-            const completeBlob = new Blob(audioChunks, { type: 'audio/webm' });
-            sendAudioData(completeBlob);
-            audioChunks = []; // Clear the chunks array after sending
-        };
-
-        mediaRecorder.start(1000); // Record in chunks of 1 second
-        console.log("MediaRecorder started.");
-    }).catch(error => {
-        console.error("Error capturing audio stream:", error);
-    });
-}
-
-function stopRecording() {
-    if (mediaRecorder) {
-        mediaRecorder.stop(); // This triggers the 'onstop' event
-    }
-}
-
-function saveCurrentTranscription() {
-    if (mediaRecorder && audioChunks.length > 0) {
-        mediaRecorder.stop(); // This will trigger the 'onstop' event and send data
-        // mediaRecorder will be restarted if needed after data is sent
-    }
-}
-
-function sendAudioData(blob, saveOnly = false) {
-    const endpoint = saveOnly ? 'save_transcription' : 'transcribe';
-    fetch(`http://127.0.0.1:5000/${endpoint}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'audio/webm'
-        },
-        body: blob
-    }).then(response => response.json()).then(data => {
-        console.log("Transcription result:", data);
-        if (saveOnly) {
-            console.log("Transcription saved successfully.");
-            // Optionally restart recording if needed
-            startRecording(); // Call this only if continuous recording is required
-        }
-    }).catch(error => {
-        console.error("Error sending audio data:", error);
-    });
-}

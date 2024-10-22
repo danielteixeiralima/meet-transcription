@@ -1,117 +1,85 @@
-from flask import Flask, request, jsonify
+# server.py
+
+# Importar as Bibliotecas
 import torch
-from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
-import soundfile as sf
-import subprocess
-import base64
-from pyannote.audio import Pipeline
-import logging
-from flask_cors import CORS
+import whisperx
+from flask import Flask, request, render_template
 import os
 
+# Configurar o Token do Hugging Face
+# Substitua 'SEU_TOKEN_AQUI' pelo seu token real
+HUGGINGFACE_TOKEN = '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'
+
+# Verificar se o token foi fornecido
+if not HUGGINGFACE_TOKEN:
+    raise ValueError("Por favor, forneça o token do Hugging Face em HUGGINGFACE_TOKEN.")
+
+# Configurar o Dispositivo
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"Usando dispositivo: {device}")
+
+# Inicializar o aplicativo Flask
 app = Flask(__name__)
-CORS(app)
 
-logging.basicConfig(level=logging.INFO)
+# Carregar o Modelo Whisper
+model = whisperx.load_model("medium", device, compute_type="float32")
 
-processor = Wav2Vec2Processor.from_pretrained("jonatasgrosman/wav2vec2-large-xlsr-53-portuguese")
-model = Wav2Vec2ForCTC.from_pretrained("jonatasgrosman/wav2vec2-large-xlsr-53-portuguese")
+@app.route('/', methods=['GET', 'POST'])
+def upload_file():
+    if request.method == 'POST':
+        # Verificar se o arquivo foi enviado na requisição
+        if 'file' not in request.files:
+            return 'Nenhum arquivo enviado.'
+        file = request.files['file']
+        if file.filename == '':
+            return 'Nenhum arquivo selecionado.'
+        if file:
+            # Salvar o arquivo no servidor
+            audio_file = os.path.join('uploads', file.filename)
+            file.save(audio_file)
+            print(f"Arquivo recebido: {audio_file}")
 
-def load_diarization_pipeline():
-    try:
-        return Pipeline.from_pretrained("pyannote/speaker-diarization", use_auth_token='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')
-    except Exception as e:
-        logging.error(f"Failed to load diarization pipeline: {e}")
-        return None
+            try:
+                # Transcrever o Áudio
+                result = model.transcribe(audio_file)
 
-diarization_pipeline = load_diarization_pipeline()
+                # Carregar o Modelo de Alinhamento e Metadados
+                model_a, metadata = whisperx.load_align_model(language_code=result["language"], device=device)
 
-@app.route('/transcribe', methods=['POST'])
-def transcribe_audio():
-    audio_data = request.data
-    if not audio_data:
-        logging.error("No audio data received")
-        return jsonify({'error': 'No audio data received'}), 400
+                # Alinhar a Transcrição com Timestamps Precisos
+                result_aligned = whisperx.align(result["segments"], model_a, metadata, audio_file, device)
 
-    try:
-        audio_bytes = base64.b64decode(audio_data)
-        temp_webm_path = "temp_audio.webm"
-        temp_wav_path = "temp_audio.wav"
-        with open(temp_webm_path, "wb") as f:
-            f.write(audio_bytes)
-        subprocess.run(['ffmpeg', '-y', '-i', temp_webm_path, '-ar', '16000', '-ac', '1', temp_wav_path], check=True)
-        logging.info("Conversion to WAV completed.")
+                # Executar a Diarização de Falantes
+                diarize_pipeline = whisperx.DiarizationPipeline(
+                    use_auth_token=HUGGINGFACE_TOKEN,
+                    device=device
+                )
+                diarization_result = diarize_pipeline(audio_file)
 
-        if not os.path.exists(temp_wav_path):
-            logging.error("WAV file not created.")
-            return jsonify({'error': 'WAV file not created'}), 500
+                # Combinar a Transcrição com a Diarização
+                result_aligned = whisperx.assign_word_speakers(diarization_result, result_aligned)
 
-        speech, sample_rate = sf.read(temp_wav_path)
-        logging.info("WAV file loaded.")
+                # Preparar o Resultado Final
+                transcription = ''
+                for segment in result_aligned["segments"]:
+                    speaker = segment.get('speaker', 'Desconhecido')
+                    start_time = segment.get('start', 0)
+                    end_time = segment.get('end', 0)
+                    text = segment.get('text', '')
+                    transcription += f"[{start_time:.2f}s - {end_time:.2f}s] Falante {speaker}: {text}\n"
 
-        if diarization_pipeline:
-            diarization = diarization_pipeline({'uri': 'temp_audio', 'audio': temp_wav_path})
-            results = []
-            for turn, _, speaker in diarization.itertracks(yield_label=True):
-                start, end = turn
-                if end > start:  # Ensure positive duration
-                    segment_audio = speech[int(start * sample_rate):int(end * sample_rate)]
-                    input_values = processor(segment_audio, return_tensors="pt", sampling_rate=sample_rate).input_values
-                    logits = model(input_values).logits
-                    predicted_ids = torch.argmax(logits, dim=-1)
-                    transcription = processor.batch_decode(predicted_ids)[0]
-                    results.append({'speaker': speaker, 'start': start, 'end': end, 'transcription': transcription})
-                else:
-                    logging.warning(f"Skipped segment from {start} to {end} due to non-positive duration.")
+                # Retornar a transcrição na resposta
+                return render_template('result.html', transcription=transcription)
 
-            return jsonify(results), 200
-        else:
-            logging.error("Diarization pipeline not available")
-            return jsonify({'error': 'Diarization pipeline not available'}), 500
-    except Exception as e:
-        logging.error(f"Error processing audio data: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+            except Exception as e:
+                # Capturar qualquer exceção e retornar uma mensagem de erro
+                print(f"Erro ao processar o áudio: {e}")
+                return f"Ocorreu um erro ao processar o áudio: {e}"
 
-@app.route('/save_transcription', methods=['POST'])
-def save_transcription():
-    audio_data = request.data
-    if not audio_data:
-        logging.error("No audio data received")
-        return jsonify({'error': 'No audio data received'}), 400
-
-    try:
-        audio_bytes = base64.b64decode(audio_data)
-        temp_webm_path = "temp_audio.webm"
-        temp_wav_path = "temp_audio.wav"
-        with open(temp_webm_path, "wb") as f:
-            f.write(audio_bytes)
-        subprocess.run(['ffmpeg', '-y', '-i', temp_webm_path, '-ar', '16000', '-ac', '1', temp_wav_path], check=True)
-        speech, sample_rate = sf.read(temp_wav_path)
-        transcription = ""
-
-        if diarization_pipeline:
-            diarization = diarization_pipeline({'uri': 'temp_audio', 'audio': temp_wav_path})
-            for turn, _, speaker in diarization.itertracks(yield_label=True):
-                start, end = turn
-                if end > start:
-                    segment_audio = speech[int(start * sample_rate):int(end * sample_rate)]
-                    input_values = processor(segment_audio, return_tensors="pt", sampling_rate=sample_rate).input_values
-                    logits = model(input_values).logits
-                    predicted_ids = torch.argmax(logits, dim=-1)
-                    segment_transcription = processor.batch_decode(predicted_ids)[0]
-                    transcription += f"Speaker {speaker}: {segment_transcription}\n"
-
-            directory = './transcriptions'
-            if not os.path.exists(directory):
-                os.makedirs(directory)
-            with open(os.path.join(directory, 'complete_transcription.txt'), 'w') as file:
-                file.write(transcription)
-            return jsonify({'status': 'success', 'message': 'Transcription saved successfully'}), 200
-        else:
-            return jsonify({'error': 'Diarization pipeline not available'}), 500
-    except Exception as e:
-        logging.error(f"Error processing audio data: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+    return render_template('upload.html')
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Criar a pasta de uploads se não existir
+    if not os.path.exists('uploads'):
+        os.makedirs('uploads')
+    app.run(host='0.0.0.0', port=5000)

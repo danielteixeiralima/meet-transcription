@@ -1,125 +1,123 @@
-// popup.js
+// recorder.js
 
-let mediaRecorder = null; // Initialize MediaRecorder
-let audioChunks = []; // Array to store audio chunks
-let audioContext = null; // AudioContext variable
-let microphoneStream = null; // Microphone stream
-let tabStream = null; // Tab audio stream
-
-document.getElementById('startBtn').addEventListener('click', () => {
-    console.log('Iniciando transcrição'); // Log start
-    document.getElementById('startBtn').disabled = true; // Disable start button
-    document.getElementById('stopBtn').disabled = false; // Enable stop button
-
-    startRecording();
-});
-
-document.getElementById('stopBtn').addEventListener('click', () => {
-    console.log('Parando gravação'); // Log stop
-    document.getElementById('stopBtn').disabled = true; // Disable stop button
-    document.getElementById('startBtn').disabled = false; // Enable start button
-
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-        mediaRecorder.stop(); // Stop recording
-    }
-});
+let mediaRecorder = null; // Inicializa a variável do MediaRecorder
+let audioChunks = []; // Array para armazenar os chunks de áudio
+let audioContext = null; // Declara o audioContext no escopo superior
 
 async function startRecording() {
-    console.log('Iniciando gravação'); // Log start
+    console.log('Iniciando gravação'); // Log de início
 
     try {
-        // Capture microphone audio
-        microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Captura o áudio do microfone
+        const microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         console.log('Stream do microfone capturada:', microphoneStream);
 
-        // Capture tab audio directly in popup.js
-        chrome.tabCapture.capture({ audio: true, video: false }, (stream) => {
-            if (chrome.runtime.lastError || !stream) {
-                console.error('Erro ao capturar áudio da guia:', chrome.runtime.lastError); // Log error
-                document.getElementById('startBtn').disabled = false; // Re-enable start button
-                document.getElementById('stopBtn').disabled = true; // Disable stop button
+        // Captura o áudio da guia
+        chrome.tabCapture.capture({ audio: true, video: false }, async (tabStream) => {
+            if (chrome.runtime.lastError || !tabStream) {
+                console.error('Erro ao capturar áudio da guia:', chrome.runtime.lastError); // Log de erro
                 return;
             }
 
-            tabStream = stream;
             console.log('Stream da guia capturada:', tabStream);
 
-            // Create AudioContext
+            // Cria um AudioContext
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
-            // Create source nodes for each stream
+            // Cria nós de origem para cada stream
             const source1 = audioContext.createMediaStreamSource(microphoneStream);
             const source2 = audioContext.createMediaStreamSource(tabStream);
 
-            // Create a destination node to mix the streams
+            // Cria um nó de destino para mixar os streams
             const destination = audioContext.createMediaStreamDestination();
 
-            // Connect sources to destination
+            // Conecta as fontes ao destino
             source1.connect(destination);
             source2.connect(destination);
 
-            // Create MediaRecorder from the combined stream
+            // Cria um MediaRecorder a partir do stream combinado
             mediaRecorder = new MediaRecorder(destination.stream, { mimeType: 'audio/webm' });
 
             mediaRecorder.ondataavailable = event => {
                 if (event.data.size > 0) {
-                    audioChunks.push(event.data); // Add audio data to array
-                    console.log('Chunk de áudio disponível:', event.data); // Log chunk
+                    audioChunks.push(event.data); // Adiciona os dados de áudio ao array
+                    console.log('Chunk de áudio disponível:', event.data); // Log do chunk disponível
                 }
             };
 
             mediaRecorder.onstop = async () => {
-                console.log('Gravação parada'); // Log stop
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' }); // Create Blob from audio data
-                console.log('Blob de áudio criado:', audioBlob); // Log Blob
+                console.log('Gravação parada'); // Log de gravação parada
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' }); // Cria um Blob com os dados de áudio
+                console.log('Blob de áudio criado:', audioBlob); // Log do Blob criado
 
                 try {
-                    // Decode Blob to AudioBuffer
+                    // Decodifica o Blob para AudioBuffer
                     const arrayBuffer = await audioBlob.arrayBuffer();
-                    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-                    console.log('AudioBuffer decodificado:', audioBuffer); // Log AudioBuffer
+                    const audioBuffer = await decodeAudioData(arrayBuffer);
+                    console.log('AudioBuffer decodificado:', audioBuffer); // Log do AudioBuffer
 
-                    // Encode AudioBuffer to WAV
+                    // Codifica o AudioBuffer para WAV
                     const wavBuffer = encodeWAV(audioBuffer);
                     const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
-                    const url = URL.createObjectURL(wavBlob); // Create URL for Blob
-                    console.log('URL do WAV criado:', url); // Log URL
+                    const url = URL.createObjectURL(wavBlob); // Cria uma URL para o Blob
+                    console.log('URL do WAV criado:', url); // Log da URL criada
 
-                    // Initiate download of WAV file
+                    // Inicia o download do arquivo WAV
                     chrome.downloads.download({
                         url: url,
                         filename: 'meet-transcription/audios/captura_audio.wav',
                         saveAs: false
                     }, (downloadId) => {
                         if (downloadId) {
-                            console.log('Download iniciado com ID:', downloadId); // Log download
+                            console.log('Download iniciado com ID:', downloadId); // Log do download
                         } else {
-                            console.error('Falha ao iniciar o download'); // Log download failure
+                            console.error('Falha ao iniciar o download'); // Log de falha no download
                         }
                     });
                 } catch (error) {
-                    console.error('Erro ao processar o áudio:', error); // Log processing error
+                    console.error('Erro ao processar o áudio:', error); // Log de erro no processamento
                 }
 
-                audioChunks = []; // Reset chunks array
-                audioContext.close(); // Close AudioContext
+                audioChunks = []; // Reseta o array de chunks
+                audioContext.close(); // Fecha o AudioContext
 
-                // Stop tracks of the streams
-                microphoneStream.getTracks().forEach(track => track.stop());
-                tabStream.getTracks().forEach(track => track.stop());
+                // Fecha a janela do gravador
+                window.close();
             };
 
-            mediaRecorder.start(); // Start recording
-            console.log('Gravação iniciada'); // Log recording started
+            mediaRecorder.start(); // Inicia a gravação
+            console.log('Gravação iniciada'); // Log de gravação iniciada
         });
     } catch (error) {
-        console.error('Erro ao capturar o áudio do microfone:', error); // Log error
-        document.getElementById('startBtn').disabled = false; // Re-enable start button
-        document.getElementById('stopBtn').disabled = true; // Disable stop button
+        console.error('Erro ao capturar o áudio do microfone:', error); // Log de erro
     }
 }
 
-// Function to encode AudioBuffer to WAV
+// Inicia a gravação imediatamente ao carregar a página
+startRecording();
+
+document.getElementById('stopBtn').addEventListener('click', () => {
+    console.log('Parando gravação'); // Log de parada
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop(); // Para a gravação
+    }
+});
+
+// Função para decodificar ArrayBuffer para AudioBuffer
+function decodeAudioData(arrayBuffer) {
+    return new Promise((resolve, reject) => {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        audioCtx.decodeAudioData(arrayBuffer, (decodedData) => {
+            resolve(decodedData);
+            audioCtx.close();
+        }, (error) => {
+            reject(error);
+            audioCtx.close();
+        });
+    });
+}
+
+// Função para codificar AudioBuffer para WAV
 function encodeWAV(audioBuffer) {
     const numOfChan = audioBuffer.numberOfChannels,
           sampleRate = audioBuffer.sampleRate,
@@ -157,7 +155,7 @@ function encodeWAV(audioBuffer) {
     /* data chunk length */
     view.setUint32(40, audioBuffer.length * numOfChan * (bitDepth / 8), true);
 
-    // Write PCM samples
+    // Escreve os samples PCM
     let offset = 44;
     let interleaved;
 
@@ -169,9 +167,9 @@ function encodeWAV(audioBuffer) {
 
     for (let i = 0; i < interleaved.length; i++, offset += 2) {
         let sample = interleaved[i];
-        // Clamp the sample
+        // Limita o sample
         sample = Math.max(-1, Math.min(1, sample));
-        // Scale to 16-bit integer
+        // Escala para inteiro de 16 bits
         sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
         view.setInt16(offset, sample, true);
     }
@@ -194,7 +192,7 @@ function interleave(inputL, inputR) {
     return result;
 }
 
-// Function to write strings into DataView
+// Função para escrever strings no DataView
 function writeString(view, offset, string) {
     for (let i = 0; i < string.length; i++) {
         view.setUint8(offset + i, string.charCodeAt(i));

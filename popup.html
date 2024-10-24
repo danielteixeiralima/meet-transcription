@@ -1,12 +1,24 @@
 <!DOCTYPE html>
-<html>
+<html lang="pt-BR">
 <head>
-    <title>Meet Transcription</title>
+    <meta charset="UTF-8">
+    <title>Captura de Áudio</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 10px;
+        }
+        button {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            font-size: 16px;
+        }
+    </style>
 </head>
 <body>
-    <h1>Meet Transcription</h1>
-    <button id="start-button">Start Transcription</button>
-    <button id="stop-button">Stop Transcription</button>
-    <script src="popup.js"></script> <!-- External script file -->
+    <button id="startBtn">Iniciar Transcrição</button>
+    <button id="stopBtn" disabled>Parar Transcrição</button>
+    <script src="popup.js"></script>
 </body>
 </html>

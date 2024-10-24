@@ -1,113 +1,49 @@
-window.addEventListener('load', function() {
-    let mediaRecorder;
-    let audioChunks = [];
+// // content.js
 
-    // Função para exibir a transcrição na página
-    function displayTranscription(transcription) {
-        let transcriptionDiv = document.getElementById('transcription');
-        if (!transcriptionDiv) {
-            transcriptionDiv = document.createElement('div');
-            transcriptionDiv.id = 'transcription';
-            transcriptionDiv.style.position = 'fixed';
-            transcriptionDiv.style.bottom = '10px';
-            transcriptionDiv.style.right = '10px';
-            transcriptionDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-            transcriptionDiv.style.color = 'white';
-            transcriptionDiv.style.padding = '10px';
-            transcriptionDiv.style.zIndex = '1000';
-            transcriptionDiv.style.maxWidth = '300px';
-            transcriptionDiv.style.overflow = 'auto';
-            transcriptionDiv.style.height = '150px';
-            document.body.appendChild(transcriptionDiv);
-            console.log("Div de transcrição criada.");
-        } else {
-            console.log("Div de transcrição já existe.");
-        }
+// // Função para detectar quando a reunião é encerrada
+// function detectMeetingEnd() {
+//     let meetingOngoing = false;
 
-        console.log("Exibindo transcrição: ", transcription);
-        transcriptionDiv.innerHTML += transcription + '<br>';
-    }
+//     // Função para verificar se o botão de sair está presente
+//     function checkLeaveButton() {
+//         const leaveButton = document.querySelector('[aria-label="Sair da reunião"]') ||
+//                             document.querySelector('[aria-label="Leave call"]');
+//         return !!leaveButton;
+//     }
 
-    // Função para enviar o áudio para o servidor de transcrição
-    function transcribeAudio(blob) {
-        if (!blob.size) {
-            console.error("Nenhum áudio capturado.");
-            return;
-        }
-        console.log("Enviando áudio para transcrição...");
-        fetch('http://127.0.0.1:5000/transcribe', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'audio/webm'
-            },
-            body: blob
-        })
-        .then(response => {
-            console.log("Resposta recebida do servidor: ", response);
-            return response.json();
-        })
-        .then(data => {
-            if (data.error) {
-                console.error('Erro no servidor:', data.error);
-            } else {
-                console.log("Dados recebidos:", data);
-                if (data.length === 0) {
-                    console.warn("Nenhuma transcrição retornada.");
-                } else {
-                    console.log("Transcrições recebidas:", data);
-                }
-                data.forEach(entry => displayTranscription(`${entry.speaker}: ${entry.transcription}`));
-            }
-        })
-        .catch(error => console.error('Erro ao buscar transcrição:', error));
-    }
+//     // Inicialmente, espera até que o botão de sair esteja presente
+//     const checkMeetingInterval = setInterval(() => {
+//         if (checkLeaveButton()) {
+//             meetingOngoing = true;
+//             console.log('Reunião em andamento detectada pelo content script.');
+//             clearInterval(checkMeetingInterval);
+//             // Inicia a observação após detectar o início da reunião
+//             observer.observe(document.body, { childList: true, subtree: true });
+//         }
+//     }, 1000); // Verifica a cada 1 segundo
 
-    // Capturando áudio da página
-    function captureAudio() {
-        console.log("Iniciando a tentativa de acesso ao microfone...");
-        navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(stream => {
-            console.log("Acesso ao microfone garantido com sucesso.", stream);
-            mediaRecorder = new MediaRecorder(stream);
-            audioChunks = [];
+//     // Cria um MutationObserver para observar mudanças no DOM
+//     const observer = new MutationObserver((mutations, obs) => {
+//         const currentlyPresent = checkLeaveButton();
 
-            mediaRecorder.ondataavailable = e => {
-                audioChunks.push(e.data);
-                console.log("Gravando áudio...");
-            };
+//         if (meetingOngoing && !currentlyPresent) {
+//             // Reunião foi encerrada
+//             console.log('Reunião encerrada detectada pelo content script.');
+//             chrome.runtime.sendMessage({action: 'stopRecording'});
+//             obs.disconnect();
+//         }
 
-            mediaRecorder.onstop = e => {
-                console.log("Gravação de áudio parada.");
-                const completeBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                transcribeAudio(completeBlob);
-                audioChunks = [];
-            };
+//         // Atualiza o estado da reunião
+//         meetingOngoing = currentlyPresent;
+//     });
 
-            mediaRecorder.start();
-            console.log("MediaRecorder iniciou a captura de áudio.");
-        })
-        .catch(error => {
-            console.error("Erro ao acessar dispositivos de mídia.", error);
-        });
-    }
+//     // Inicia a observação no body
+//     if (document.body) {
+//         // A observação é iniciada após detectar que a reunião está em andamento
+//     }
+// }
 
-    // Iniciar ou parar a captura de áudio conforme a mensagem recebida
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        console.log("Mensagem recebida no content.js:", message);
-
-        if (message.action === 'startTranscription') {
-            console.log("Transcrição iniciada...");
-            captureAudio();
-            sendResponse({ status: 'Audio capture started' });
-        } else if (message.action === 'stopTranscription') {
-            console.log("Transcrição parada...");
-            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                mediaRecorder.stop();
-                console.log("MediaRecorder parando a gravação.");
-            }
-            sendResponse({ status: 'Audio capture stopped' });
-        }
-    });
-
-    console.log("Content script carregado e pronto.");
-});
+// // Detecta quando a página é carregada completamente
+// window.addEventListener('load', () => {
+//     detectMeetingEnd();
+// });

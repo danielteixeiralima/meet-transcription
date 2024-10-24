@@ -1,35 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "Google Meet Transcription",
+  "name": "Captura de Áudio da Guia",
   "version": "1.0",
-  "description": "Transcribe Google Meet meetings",
+  "description": "Extensão para capturar áudio da guia atual e salvar como .wav",
   "permissions": [
-    "activeTab",
-    "contextMenus",
-    "storage",
-    "tabs",
-    "microphone"
-  ],
-  "background": {
-    "service_worker": "background.js"
-  },
-  "content_scripts": [
-    {
-      "matches": ["https://meet.google.com/*"],
-      "js": ["content.js"]
-    }
+    "tabCapture",
+    "downloads",
+    "activeTab"
   ],
   "action": {
-    "default_popup": "popup.html",
-    "default_icon": {
-      "16": "images/icon16.png",
-      "48": "images/icon48.png",
-      "128": "images/icon128.png"
-    }
-  },
-  "icons": {
-    "16": "images/icon16.png",
-    "48": "images/icon48.png",
-    "128": "images/icon128.png"
+    "default_popup": "popup.html"
   }
 }
